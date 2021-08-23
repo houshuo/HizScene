@@ -1,0 +1,48 @@
+﻿#include "../Structs.hlsl"
+#include "UnityCG.cginc"
+
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CopyVertexBuffer
+#pragma kernel CopyIndexBuffer
+#pragma kernel CopyArgumentAndAABBBuffer
+
+
+cbuffer CB
+{
+	float _VertexCopyCount;
+	float _IndexCopyCount;
+	float _SlotCopyCount;
+}
+
+StructuredBuffer<Vertex> _VertexSource;
+RWStructuredBuffer<Vertex> _VertexDest;
+[numthreads(128, 1, 1)]
+void CopyVertexBuffer(uint3 id : SV_DispatchThreadID)
+{
+	uint tID = id.x;
+	if (tID >= _VertexCopyCount) return;
+	_VertexDest[tID] = _VertexSource[tID];
+}
+
+StructuredBuffer<uint> _IndexSource;
+RWStructuredBuffer<uint> _IndexDest;
+[numthreads(128, 1, 1)]
+void CopyIndexBuffer(uint3 id : SV_DispatchThreadID)
+{
+	uint tID = id.x;
+	if (tID >= _IndexCopyCount) return;
+	_IndexDest[tID] = _IndexSource[tID];
+}
+
+StructuredBuffer<IndirectArgument> _ArgumentBufferSource;
+StructuredBuffer<AABB> _AABBBufferSource;
+RWStructuredBuffer<IndirectArgument> _ArgumentBufferDest;
+RWStructuredBuffer<AABB> _AABBBufferDest;
+[numthreads(128, 1, 1)]
+void CopyArgumentAndAABBBuffer(uint3 id : SV_DispatchThreadID)
+{
+	uint tID = id.x;
+	if (tID >= _SlotCopyCount) return;
+	_ArgumentBufferDest[tID] = _ArgumentBufferSource[tID];
+	_AABBBufferDest[tID] = _AABBBufferSource[tID];
+}

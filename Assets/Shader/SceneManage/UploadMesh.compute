@@ -1,0 +1,55 @@
+﻿#include "../Structs.hlsl"
+#include "UnityCG.cginc"
+
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSUploadVertexMain
+#pragma kernel CSUploadIndexMain
+
+cbuffer CB
+{
+	float4x4 _UNITY_MATRIX_M;
+	
+	float _VertexBaseIndex;
+	float _VertexCount;
+	float _IndexBaseIndex;
+	float _IndexCount;
+}
+
+StructuredBuffer<float3> _InputVertexPosition;
+StructuredBuffer<float3> _InputVertexNormal;
+StructuredBuffer<float4> _InputVertexTangent;
+RWStructuredBuffer<Vertex> _VertexBuffer;
+
+StructuredBuffer<uint> _InputIndex;
+RWStructuredBuffer<uint> _IndexBuffer;
+
+RWStructuredBuffer<IndirectArgument> _ArgumentBuffer;
+RWStructuredBuffer<AABB> _AABBBuffer;
+
+[numthreads(64,1,1)]
+void CSUploadVertexMain (uint3 id : SV_DispatchThreadID)
+{
+	uint tID = id.x;
+	if (tID >= _VertexCount) return;
+	float3 position = _InputVertexPosition[tID];
+	float3 normal = _InputVertexNormal[tID];
+	float3 tangent = _InputVertexTangent[tID];
+	Vertex vertexWorldSpace;
+	vertexWorldSpace.position = mul(_UNITY_MATRIX_M, float4(position, 1)).xyz;
+	vertexWorldSpace.normal = normalize(mul((float3x3)_UNITY_MATRIX_M, normal));
+	vertexWorldSpace.tangent = normalize(mul((float3x3)_UNITY_MATRIX_M, tangent));
+	uint slot = tID + _VertexBaseIndex;
+	_VertexBuffer[slot] = vertexWorldSpace;
+
+}
+
+[numthreads(64, 1, 1)]
+void CSUploadIndexMain(uint3 id : SV_DispatchThreadID)
+{
+	uint tID = id.x;
+	if (tID >= _IndexCount) return;
+	uint index = _InputIndex[tID] + _VertexBaseIndex;
+	uint slot = tID + _IndexBaseIndex;
+	_IndexBuffer[slot] = index;
+
+}

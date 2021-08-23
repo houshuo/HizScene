@@ -1,0 +1,126 @@
+﻿#include "../Structs.hlsl"
+#include "UnityCG.cginc"
+
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+cbuffer CB
+{
+	float _TotalCount;
+	float4x4 _UNITY_MATRIX_VP;
+	float2 _HiZTextureSize;
+	Texture2D<float4> _HiZMap;
+	SamplerState sampler_HiZMap; // "sampler" + “_HiZMap”
+}
+
+StructuredBuffer<AABB> _InstanceAABBBuffer;
+StructuredBuffer<IndirectArgument> _InstanceArgumentBuffer;
+RWStructuredBuffer<IndirectArgument> _CullingResult;
+RWStructuredBuffer<uint> _CountBuffer;
+
+inline uint IsVisibleAfterFrustumCulling(float4 clipPos)
+{
+	return (clipPos.z > 1
+		|| clipPos.x < -1
+		|| clipPos.x > 1
+		|| clipPos.y < -1
+		|| clipPos.y > 1)
+		? 0 : 1;
+}
+
+// Hi-Z Culling
+inline uint IsVisibleAfterOcclusionCulling(float clipMinX, float clipMaxX, float clipMinY, float clipMaxY, float clipMinZ)
+{
+	// Change it to 0 - 1 range 
+	float2 minXY = float2(clipMinX, clipMinY) * 0.5 + 0.5;
+	float2 maxXY = float2(clipMaxX, clipMaxY) * 0.5 + 0.5;
+
+	// Calculate hi-Z buffer mip
+	int2 size = (maxXY - minXY) * _HiZTextureSize.xy;
+	float mip = ceil(log2(max(size.x, size.y) /2.0));
+	mip = clamp(mip, 0, 10);
+
+	const  float    widthSS = (maxXY.x - minXY.x);
+	const  float   heightSS = (maxXY.y - minXY.y);
+
+	float HIZdepth = 1;
+	float yPos = minXY.y;
+	for (int y = 0; y < 2; ++y, yPos += heightSS)
+	{
+		float xPos = minXY.x;
+		for (int x = 0; x < 2; ++x, xPos += widthSS)
+		{
+			const float2 nCoords0 = float2(xPos, yPos);
+			HIZdepth = min(HIZdepth, _HiZMap.SampleLevel(sampler_HiZMap, nCoords0, mip).r);
+		}
+	}
+
+	return clipMinZ <= 1.0 - HIZdepth * 2;
+}
+
+[numthreads(64,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+	uint tID = id.x;
+	if (tID >= _TotalCount) return;
+
+	// Get the instance data
+	AABB instance_AABB = _InstanceAABBBuffer[tID];
+	IndirectArgument instance_argument = _InstanceArgumentBuffer[tID];
+
+	// Check if the instance is visible
+	float3 pos = instance_AABB.center;
+	float3 extent = instance_AABB.extent;
+
+	float4 boxCorners[8];
+	boxCorners[0] = float4(pos.x + extent.x, pos.y + extent.y, pos.z + extent.z, 1.0);
+	boxCorners[1] = float4(pos.x + extent.x, pos.y + extent.y, pos.z - extent.z, 1.0);
+	boxCorners[2] = float4(pos.x + extent.x, pos.y - extent.y, pos.z + extent.z, 1.0);
+	boxCorners[3] = float4(pos.x + extent.x, pos.y - extent.y, pos.z - extent.z, 1.0);
+	boxCorners[4] = float4(pos.x - extent.x, pos.y + extent.y, pos.z + extent.z, 1.0);
+	boxCorners[5] = float4(pos.x - extent.x, pos.y + extent.y, pos.z - extent.z, 1.0);
+	boxCorners[6] = float4(pos.x - extent.x, pos.y - extent.y, pos.z + extent.z, 1.0);
+	boxCorners[7] = float4(pos.x - extent.x, pos.y - extent.y, pos.z - extent.z, 1.0);
+
+	float4 clipPos = mul(_UNITY_MATRIX_VP, float4(pos.x, pos.y, pos.z, 1.0));
+	clipPos.xyz = clipPos.xyz / clipPos.w;
+	float clipMinX = clipPos.x;
+	float clipMaxX = clipPos.x;
+	float clipMinY = clipPos.y;
+	float clipMaxY = clipPos.y;
+	float clipMinZ = clipPos.z;
+
+	uint isVisible = 1;
+
+	uint isInFrustum = IsVisibleAfterFrustumCulling(clipPos);
+	[unroll]
+	for (int i = 0; i < 8; i++)
+	{
+		clipPos = mul(_UNITY_MATRIX_VP, boxCorners[i]);
+
+		// For Frustum
+		isInFrustum = saturate(isInFrustum + IsVisibleAfterFrustumCulling(clipPos));
+
+		// For HiZ
+		clipPos.xyz = clipPos.xyz / clipPos.w;
+		clipMinX = min(clipPos.x, clipMinX);
+		clipMaxX = max(clipPos.x, clipMaxX);
+		clipMinY = min(clipPos.y, clipMinY);
+		clipMaxY = max(clipPos.y, clipMaxY);
+		clipMinZ = min(clipPos.z, clipMinZ);
+	}
+	isVisible *= isInFrustum;
+
+	isVisible *= isVisible > 0 ? IsVisibleAfterOcclusionCulling(clipMinX, clipMaxX, clipMinY, clipMaxY, clipMinZ) : 0;
+
+
+	// Output
+	[branch]
+	if (isVisible > 0.5)
+	{
+		uint index;
+		InterlockedAdd(_CountBuffer[0], 1, index);
+		_CullingResult[index] = instance_argument;
+	}
+	
+}
