@@ -62,8 +62,7 @@ public unsafe class MeshletImportProcessor
 
     static void ProcessObject(GameObject go)
     {
-        string assetPath = AssetDatabase.GetAssetPath(go);
-        MeshFilter[] meshFilters = go.GetComponentsInChildren<MeshFilter>();
+        MeshFilter[] meshFilters = go.GetComponentsInChildren<MeshFilter>(true);
         if (meshFilters == null)
             return;
         foreach(var meshFilter in meshFilters)
