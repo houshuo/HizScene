@@ -3,7 +3,6 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
-
 public class RenderScene : ScriptableRendererFeature
 {
     public static List<MeshManager> meshes = new List<MeshManager>();

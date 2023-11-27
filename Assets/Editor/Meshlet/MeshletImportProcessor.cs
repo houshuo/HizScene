@@ -106,7 +106,6 @@ public unsafe class MeshletImportProcessor
                     meshletIndices[3 * j + 2] = (int)uniqueVertexIndices[(int)(primitive.i2 + currentMeshlet->VertOffset)];
                 }
                 meshletMesh.SetIndices(meshletIndices, MeshTopology.Triangles, i, true);
-                Debug.Log(currentCullData->BoundingSphere);
             }
             Clear();
 
