@@ -39,15 +39,16 @@ public class RenderScene : ScriptableRendererFeature
                 //Hiz Const
                 cmd.SetComputeIntParam(renderScene.HizCullingCS,"_TotalCount", mesh.slot);
                 cmd.SetComputeMatrixParam(renderScene.HizCullingCS,"_UNITY_MATRIX_VP", matrixVP);
-                cmd.SetComputeTextureParam(renderScene.HizCullingCS, passKernel, "_HiZMap", renderScene.m_HiZDepthTexture);
                 cmd.SetComputeFloatParam(renderScene.HizCullingCS,"_HizTextureSize", renderScene.m_textureSize);
                 cmd.SetComputeFloatParam(renderScene.HizCullingCS,"_LODCount", renderScene.m_LODCount);
+                //HiZ Texture
+                cmd.SetComputeTextureParam(renderScene.HizCullingCS, passKernel, "_HiZMap", renderScene.m_HiZDepthTexture);
 
                 cmd.SetComputeBufferParam(renderScene.HizCullingCS, passKernel, "_InstanceAABBBuffer", mesh.AABBBuffer);
                 cmd.SetComputeBufferParam(renderScene.HizCullingCS, passKernel, "_InstanceArgumentBuffer", mesh.ArgumentBuffer);
 
                 int cullingGroupX = Mathf.CeilToInt(mesh.slot / 64f);
-                renderScene.HizCullingCS.Dispatch(passKernel, cullingGroupX, 1, 1);
+                cmd.DispatchCompute(renderScene.HizCullingCS, passKernel, cullingGroupX, 1, 1);
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
                 
@@ -181,8 +182,8 @@ public class RenderScene : ScriptableRendererFeature
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
         renderer.EnqueuePass(sceneRenderFirstPass);
-        // renderer.EnqueuePass(hizTextureFirstPass);
-        // renderer.EnqueuePass(sceneRenderSecondPass);
+        renderer.EnqueuePass(hizTextureFirstPass);
+        renderer.EnqueuePass(sceneRenderSecondPass);
         renderer.EnqueuePass(hizTextureSecondPass);
     }
 

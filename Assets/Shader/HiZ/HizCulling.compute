@@ -7,7 +7,7 @@
 
 uint _TotalCount;
 float4x4 _UNITY_MATRIX_VP;
-Texture2D<float4> _HiZMap;
+Texture2D _HiZMap;
 SamplerState sampler_HiZMap; // "sampler" + “_HiZMap”
 float _HizTextureSize;
 float _LODCount;
