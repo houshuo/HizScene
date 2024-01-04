@@ -23,6 +23,9 @@ public class RenderScene : ScriptableRendererFeature
         private int passKernel;
         public RenderScene renderScene;
 
+        private RTHandle oriColorAttachment;
+        private RTHandle oriDepthAttachment;
+
         public SceneRenderPass(int passKernel)
         {
             this.passKernel = passKernel;
@@ -109,7 +112,9 @@ public class RenderScene : ScriptableRendererFeature
 
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
-            RenderTargetIdentifier lastRenderTarget = renderingData.cameraData.targetTexture;
+            var oriColorTargetHandle = renderingData.cameraData.renderer.cameraColorTargetHandle;
+            var oriDepthTargetHandle = renderingData.cameraData.renderer.cameraDepthTargetHandle;
+            
             CommandBuffer cmd = CommandBufferPool.Get("RenderHizBuffer");
             RenderTargetIdentifier id = new RenderTargetIdentifier(renderScene.m_HiZDepthTexture);
             cmd.Blit(null, id, renderScene.m_generateBufferMaterial, (int)GenerateBufferPass.Blit);
@@ -127,7 +132,8 @@ public class RenderScene : ScriptableRendererFeature
 
                 cmd.CopyTexture(m_Temporaries[i], 0, 0, id, 0, i + 1);
             }
-            cmd.SetRenderTarget(lastRenderTarget);
+            
+            cmd.SetRenderTarget(oriColorTargetHandle, oriDepthTargetHandle);
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
             CommandBufferPool.Release(cmd);
