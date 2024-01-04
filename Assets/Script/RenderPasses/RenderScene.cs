@@ -14,17 +14,20 @@ public class RenderScene : ScriptableRendererFeature
     //Hiz
     public ComputeShader HizCullingCS;
     [HideInInspector]
-    public int hizCullingKernel;
+    public int hizCullingFirstPassKernel;
     [HideInInspector]
-    public ComputeBuffer HizResultBuffer;
-    [HideInInspector]
-    public ComputeBuffer HizResultCount;
-    [HideInInspector]
-    public uint[] HizResultCountBuffer;
+    public int hizCullingSecondPassKernel;
 
     class SceneRenderPass : ScriptableRenderPass
     {
+        private int passKernel;
         public RenderScene renderScene;
+
+        public SceneRenderPass(int passKernel)
+        {
+            this.passKernel = passKernel;
+        }
+        
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             Camera camera = renderingData.cameraData.camera;
@@ -33,51 +36,35 @@ public class RenderScene : ScriptableRendererFeature
             CommandBuffer cmd = CommandBufferPool.Get("RenderScene");
             foreach (MeshManager mesh in meshes)
             {
-                int meshCount = 0;
                 //Hiz Const
-                if (renderScene.HizResultBuffer.count < mesh.slot)
-                {
-                    renderScene.HizResultBuffer.Dispose();
-                    renderScene.HizResultBuffer = new ComputeBuffer(Mathf.Max(renderScene.HizResultBuffer.count * 2, mesh.slot), sizeof(uint) * 5, ComputeBufferType.Structured);
-                }
-                renderScene.HizCullingCS.SetFloat("_TotalCount", mesh.slot);
-                renderScene.HizCullingCS.SetMatrix("_UNITY_MATRIX_VP", matrixVP);
-                renderScene.HizCullingCS.SetTexture(renderScene.hizCullingKernel, "_HiZMap", renderScene.m_HiZDepthTexture);
-                renderScene.HizCullingCS.SetFloat("_HizTextureSize", renderScene.m_textureSize);
-                renderScene.HizCullingCS.SetFloat("_LODCount", renderScene.m_LODCount);
+                cmd.SetComputeIntParam(renderScene.HizCullingCS,"_TotalCount", mesh.slot);
+                cmd.SetComputeMatrixParam(renderScene.HizCullingCS,"_UNITY_MATRIX_VP", matrixVP);
+                cmd.SetComputeTextureParam(renderScene.HizCullingCS, passKernel, "_HiZMap", renderScene.m_HiZDepthTexture);
+                cmd.SetComputeFloatParam(renderScene.HizCullingCS,"_HizTextureSize", renderScene.m_textureSize);
+                cmd.SetComputeFloatParam(renderScene.HizCullingCS,"_LODCount", renderScene.m_LODCount);
 
-                renderScene.HizCullingCS.SetBuffer(renderScene.hizCullingKernel, "_InstanceAABBBuffer", mesh.AABBBuffer);
-                renderScene.HizCullingCS.SetBuffer(renderScene.hizCullingKernel, "_InstanceArgumentBuffer", mesh.ArgumentBuffer);
-
-                renderScene.HizResultCountBuffer[0] = 0;
-                renderScene.HizResultCount.SetData(renderScene.HizResultCountBuffer);
-                renderScene.HizCullingCS.SetBuffer(renderScene.hizCullingKernel, "_CountBuffer", renderScene.HizResultCount);
-                renderScene.HizCullingCS.SetBuffer(renderScene.hizCullingKernel, "_CullingResult", renderScene.HizResultBuffer);
+                cmd.SetComputeBufferParam(renderScene.HizCullingCS, passKernel, "_InstanceAABBBuffer", mesh.AABBBuffer);
+                cmd.SetComputeBufferParam(renderScene.HizCullingCS, passKernel, "_InstanceArgumentBuffer", mesh.ArgumentBuffer);
 
                 int cullingGroupX = Mathf.CeilToInt(mesh.slot / 64f);
-                renderScene.HizCullingCS.Dispatch(renderScene.hizCullingKernel, cullingGroupX, 1, 1);
-                renderScene.HizResultCount.GetData(renderScene.HizResultCountBuffer);
+                renderScene.HizCullingCS.Dispatch(passKernel, cullingGroupX, 1, 1);
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
-                meshCount = (int)renderScene.HizResultCountBuffer[0];
-                ////No Hiz
-                //cmd.SetGlobalBuffer("_IndirectArguments", mesh.ArgumentBuffer);
-                //meshCount = mesh.slot;
-                //Set Global Buffer
+                
+                //Draw
                 cmd.SetGlobalBuffer("_Vertices", mesh.VertexBuffer);
-
-                for (int i = 0; i < meshCount; i++)
+                for (int i = 0; i < mesh.slot; i++)
                 {
                     cmd.DrawProceduralIndirect(mesh.IndexBuffer, Matrix4x4.identity, renderScene.renderMaterial, 0, MeshTopology.Triangles, mesh.ArgumentBuffer, i * 20);
                 }
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
             }
-
-            context.ExecuteCommandBuffer(cmd);
-            cmd.Clear();
             CommandBufferPool.Release(cmd);
         }
     }
-    SceneRenderPass sceneRenderPass;
+    SceneRenderPass sceneRenderFirstPass;
+    SceneRenderPass sceneRenderSecondPass;
 
     /// <summary>
     /// Hiz Texture
@@ -153,20 +140,15 @@ public class RenderScene : ScriptableRendererFeature
             base.FrameCleanup(cmd);
         }
     }
-    HizTextureRenderPass hizTexturePass;
+    HizTextureRenderPass hizTextureFirstPass;
+    HizTextureRenderPass hizTextureSecondPass;
 
     public override void Create()
     {
-        Utils.TryGetKernel("CSMain", ref HizCullingCS, ref hizCullingKernel);
-        HizResultBuffer = new ComputeBuffer(10000, sizeof(uint) * 4, ComputeBufferType.Structured);
-        HizResultCount = new ComputeBuffer(1, sizeof(uint));
-        HizResultCountBuffer = new uint[1];
+        Utils.TryGetKernel("CSFirstPass", ref HizCullingCS, ref hizCullingFirstPassKernel);
+        Utils.TryGetKernel("CSSecondPass", ref HizCullingCS, ref hizCullingSecondPassKernel);
         m_generateBufferMaterial = new Material(generateBufferShader);
-
-        sceneRenderPass = new SceneRenderPass();
-        sceneRenderPass.renderScene = this;
-        sceneRenderPass.renderPassEvent = RenderPassEvent.BeforeRenderingOpaques;
-
+        
         //设置Hiz贴图的格式
         m_HiZDepthTexture = new RenderTexture(m_textureSize, m_textureSize, 0, RenderTextureFormat.RHalf, RenderTextureReadWrite.Linear);
         m_HiZDepthTexture.filterMode = FilterMode.Point;
@@ -175,15 +157,33 @@ public class RenderScene : ScriptableRendererFeature
         m_HiZDepthTexture.Create();
         m_HiZDepthTexture.hideFlags = HideFlags.HideAndDontSave;
 
-        hizTexturePass = new HizTextureRenderPass();
-        hizTexturePass.renderScene = this;
-        hizTexturePass.renderPassEvent = RenderPassEvent.AfterRendering;
+        //第一个渲染Pass
+        sceneRenderFirstPass = new SceneRenderPass(hizCullingFirstPassKernel);
+        sceneRenderFirstPass.renderScene = this;
+        sceneRenderFirstPass.renderPassEvent = RenderPassEvent.BeforeRenderingOpaques;
+        
+        //生成渲染之后的深度图
+        hizTextureFirstPass = new HizTextureRenderPass();
+        hizTextureFirstPass.renderScene = this;
+        hizTextureFirstPass.renderPassEvent = RenderPassEvent.BeforeRenderingTransparents;
+        
+        //第二个渲染Pass
+        sceneRenderSecondPass = new SceneRenderPass(hizCullingSecondPassKernel);
+        sceneRenderSecondPass.renderScene = this;
+        sceneRenderSecondPass.renderPassEvent = RenderPassEvent.BeforeRenderingTransparents;
+        
+        //这一帧最后一个深度生成下一帧使用
+        hizTextureSecondPass = new HizTextureRenderPass();
+        hizTextureSecondPass.renderScene = this;
+        hizTextureSecondPass.renderPassEvent = RenderPassEvent.AfterRendering;
     }
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
-        renderer.EnqueuePass(sceneRenderPass);
-        renderer.EnqueuePass(hizTexturePass);
+        renderer.EnqueuePass(sceneRenderFirstPass);
+        // renderer.EnqueuePass(hizTextureFirstPass);
+        // renderer.EnqueuePass(sceneRenderSecondPass);
+        renderer.EnqueuePass(hizTextureSecondPass);
     }
 
     protected override void Dispose(bool disposing)

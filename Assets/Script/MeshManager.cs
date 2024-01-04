@@ -170,7 +170,7 @@ public class MeshManager : MonoBehaviour
             float[] aabbArray = { bound.center.x, bound.center.y, bound.center.z, bound.extents.x, bound.extents.y, bound.extents.z };
             AABBBuffer.SetData(aabbArray, 0, 6 * slot, 6);
             int indexCount = (int)mesh.GetIndexCount(i);
-            int[] argumentArray = { indexCount, 1, indexBaseLocation, 0, 0};
+            int[] argumentArray = { indexCount, 0 , indexBaseLocation, 0, 0};
             ArgumentBuffer.SetData(argumentArray, 0, 5 * slot, 5);
 
             uploadComputeCS.SetFloat("_IndexBaseIndex", indexBaseLocation);

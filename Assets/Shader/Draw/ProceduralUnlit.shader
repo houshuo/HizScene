@@ -19,6 +19,7 @@ Shader "ProceduralDraw/Unlit" {
 
             struct v2f {
                 float4 pos : SV_POSITION;
+                uint instance_ID : TEXCOORD0;
             };
 
             v2f vertex_shader(uint id : SV_VertexID, uint inst : SV_InstanceID)
@@ -27,12 +28,13 @@ Shader "ProceduralDraw/Unlit" {
                 Vertex vertex = _Vertices[id];
                 float4 vertex_position = float4(vertex.position,1.0f);
                 o.pos = mul(UNITY_MATRIX_VP, vertex_position);
+                o.instance_ID = id;
                 return o;
             }
 
             fixed4 fragment_shader(v2f i) : SV_Target
             {
-                return float4(1, 0, 0, 1);
+                return float4((i.instance_ID & 255) / 255.0, (i.instance_ID >> 8 & 255) / 255.0, (i.instance_ID >> 16 & 255) / 255.0, 1);
             }
 
             ENDCG

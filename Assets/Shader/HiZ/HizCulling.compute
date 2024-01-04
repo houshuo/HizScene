@@ -2,22 +2,18 @@
 #include "UnityCG.cginc"
 
 // Each #kernel tells which function to compile; you can have many kernels
-#pragma kernel CSMain
+#pragma kernel CSFirstPass
+#pragma kernel CSSecondPass
 
-cbuffer CB
-{
-	float _TotalCount;
-	float4x4 _UNITY_MATRIX_VP;
-	Texture2D<float4> _HiZMap;
-	SamplerState sampler_HiZMap; // "sampler" + “_HiZMap”
-	float _HizTextureSize;
-	float _LODCount;
-}
+uint _TotalCount;
+float4x4 _UNITY_MATRIX_VP;
+Texture2D<float4> _HiZMap;
+SamplerState sampler_HiZMap; // "sampler" + “_HiZMap”
+float _HizTextureSize;
+float _LODCount;
 
 StructuredBuffer<AABB> _InstanceAABBBuffer;
-StructuredBuffer<IndirectArgument> _InstanceArgumentBuffer;
-RWStructuredBuffer<IndirectArgument> _CullingResult;
-RWStructuredBuffer<uint> _CountBuffer;
+RWStructuredBuffer<IndirectArgument> _InstanceArgumentBuffer;
 
 inline uint IsVisibleAfterFrustumCulling(float4 clipPos)
 {
@@ -100,14 +96,13 @@ inline uint OcculsionTest(AABB aabb)
 }
 
 [numthreads(64,1,1)]
-void CSMain (uint3 id : SV_DispatchThreadID)
+void CSFirstPass (uint3 id : SV_DispatchThreadID)
 {
 	uint tID = id.x;
 	if (tID >= _TotalCount) return;
 
 	// Get the instance data
 	AABB instance_AABB = _InstanceAABBBuffer[tID];
-	IndirectArgument instance_argument = _InstanceArgumentBuffer[tID];
 
 	// Check if the instance is visible
 	float3 pos = instance_AABB.center;
@@ -129,12 +124,41 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 	isVisible *= isVisible > 0 ? OcculsionTest(instance_AABB) : 0;
 
 	// Output
-	[branch]
-	if (isVisible > 0.5)
+	_InstanceArgumentBuffer[tID].instanceCount = isVisible ? 1 : 0;
+}
+
+[numthreads(64,1,1)]
+void CSSecondPass (uint3 id : SV_DispatchThreadID)
+{
+	uint tID = id.x;
+	if (tID >= _TotalCount) return;
+
+	// Get the instance data
+	AABB instance_AABB = _InstanceAABBBuffer[tID];
+	if(_InstanceArgumentBuffer[tID].instanceCount == 1)
+		_InstanceArgumentBuffer[tID].instanceCount = 0;
+	else
 	{
-		uint index;
-		InterlockedAdd(_CountBuffer[0], 1, index);
-		_CullingResult[index] = instance_argument;
+		// Check if the instance is visible
+		float3 pos = instance_AABB.center;
+		float3 extent = instance_AABB.extent;
+
+		uint isVisible = 1;
+
+		uint isInFrustum = 0;
+		[unroll]
+		for (int i = 0; i < 8; i++)
+		{
+			float4 clipPos = mul(_UNITY_MATRIX_VP, float4(pos + extent * corners[i], 1));
+			clipPos.xyz = clipPos.xyz / clipPos.w;
+			// For Frustum
+			isInFrustum = saturate(isInFrustum + IsVisibleAfterFrustumCulling(clipPos));
+		}
+		isVisible *= isInFrustum;
+
+		isVisible *= isVisible > 0 ? OcculsionTest(instance_AABB) : 0;
+
+		// Output
+		_InstanceArgumentBuffer[tID].instanceCount = isVisible ? 1 : 0;
 	}
-	
 }
