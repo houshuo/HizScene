@@ -109,6 +109,7 @@ public class RenderScene : ScriptableRendererFeature
 
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
+            RenderTargetIdentifier lastRenderTarget = renderingData.cameraData.targetTexture;
             CommandBuffer cmd = CommandBufferPool.Get("RenderHizBuffer");
             RenderTargetIdentifier id = new RenderTargetIdentifier(renderScene.m_HiZDepthTexture);
             cmd.Blit(null, id, renderScene.m_generateBufferMaterial, (int)GenerateBufferPass.Blit);
@@ -126,7 +127,7 @@ public class RenderScene : ScriptableRendererFeature
 
                 cmd.CopyTexture(m_Temporaries[i], 0, 0, id, 0, i + 1);
             }
-
+            cmd.SetRenderTarget(lastRenderTarget);
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
             CommandBufferPool.Release(cmd);
